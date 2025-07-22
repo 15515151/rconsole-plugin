@@ -316,6 +316,8 @@ export class tools extends plugin {
         this.aiModel = this.toolsConfig.aiModel;
         // 强制使用海外服务器
         this.forceOverseasServer = this.toolsConfig.forceOverseasServer;
+        // 抖音是否发送图片
+        this.douyinSendImage = this.toolsConfig.douyinSendImage;
     }
 
     // 翻译插件
@@ -615,17 +617,22 @@ export class tools extends plugin {
                 // 有水印图片列表
                 // let watermark_image_list = [];
                 for (let i of item.images) {
-                    // 无水印图片列表
-                    no_watermark_image_list.push({
-                        message: segment.image(i.url_list[0]),
-                        nickname: this.e.sender.card || this.e.user_id,
-                        user_id: this.e.user_id,
-                    });
-                    // 有水印图片列表
-                    // watermark_image_list.push(i.download_url_list[0]);
-                    // e.reply(segment.image(i.url_list[0]));
+                    if (this.douyinSendImage) {
+                        // 发送图片模式 - 使用segment.image发送实际图片
+                        no_watermark_image_list.push({
+                            message: segment.image(i.url_list[0]),
+                            nickname: this.e.sender.card || this.e.user_id,
+                            user_id: this.e.user_id,
+                        });
+                    } else {
+                        // 发送图链模式 - 直接发送图片链接
+                        no_watermark_image_list.push({
+                            message: { type: "text", text: `${i.url_list[0]}` },
+                            nickname: this.e.sender.card || this.e.user_id,
+                            user_id: this.e.user_id,
+                        });
+                    }
                 }
-                // console.log(no_watermark_image_list)
                 await e.reply(await Bot.makeForwardMsg(no_watermark_image_list));
             }
             // 如果开启评论的就调用
