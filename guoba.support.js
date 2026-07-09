@@ -181,6 +181,62 @@ export function supportGuoba() {
                     component: "Switch",
                     required: false,
                 },
+                {
+                    component: "Divider",
+                    label: "对象存储配置",
+                    componentProps: {
+                        orientation: "left",
+                        plain: true,
+                    },
+                },
+                {
+                    field: "tools.s3_endpoint",
+                    label: "S3/R2 Endpoint",
+                    bottomHelpMessage: "Cloudflare R2 的 S3 兼容 Endpoint，路径第一段会作为 Bucket，例如 /yunzai",
+                    component: "Input",
+                    required: false,
+                    componentProps: {
+                        placeholder: "https://17a493f708eae567b0d39052ea612335.r2.cloudflarestorage.com/yunzai",
+                    },
+                },
+                {
+                    field: "tools.s3_access_key_id",
+                    label: "S3/R2 Access Key ID",
+                    bottomHelpMessage: "用于上传视频到 R2 的 Access Key ID",
+                    component: "Input",
+                    required: false,
+                    componentProps: {
+                        placeholder: "请输入 S3/R2 Access Key ID",
+                    },
+                },
+                {
+                    field: "tools.s3_secret_access_key",
+                    label: "S3/R2 Secret Access Key",
+                    bottomHelpMessage: "用于上传视频到 R2 的 Secret Access Key，将以密码输入框隐藏显示",
+                    component: "Input",
+                    required: false,
+                    componentProps: {
+                        type: "password",
+                        placeholder: "请输入 S3/R2 Secret Access Key",
+                    },
+                },
+                {
+                    field: "tools.public_domain",
+                    label: "公开视频访问域名",
+                    bottomHelpMessage: "R2 Bucket 绑定的公开视频访问域名，机器人会发送 public_domain + '/' + 对象路径",
+                    component: "Input",
+                    required: false,
+                    componentProps: {
+                        placeholder: "https://say.qqun.top",
+                    },
+                },
+                {
+                    field: "tools.s3_flat_object_key",
+                    label: "对象路径扁平化",
+                    bottomHelpMessage: "开启后视频公开链接为 域名/文件名；关闭则为 域名/videos/群号/日期/文件名",
+                    component: "Switch",
+                    required: false,
+                },
 
                 // ==================== 哔哩哔哩 ====================
                 {

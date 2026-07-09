@@ -15,6 +15,12 @@ deeplApiUrls: 'http://www.gptspt.cn/translate,http://gptspt.top/translate,http:/
 streamDuration: 10 # 视频最大时长（单位秒）
 streamCompatibility: false # 兼容模式，NCQQ不用开，其他ICQQ、LLO需要开启
 
+s3_endpoint: '' # S3/R2 Endpoint，路径第一段作为 Bucket
+s3_access_key_id: '' # S3/R2 Access Key ID
+s3_secret_access_key: '' # S3/R2 Secret Access Key
+public_domain: '' # 视频公开访问域名
+s3_flat_object_key: true # 对象路径是否扁平：true=域名/文件名，false=videos/群号/日期/文件名
+
 biliSessData: '' # 哔哩哔哩的SESSDATA
 biliIntroLenLimit: 50 # 哔哩哔哩简介长度限制，填 0 或者 -1 可以不做任何限制，显示完整简介
 biliDuration: 480 # 哔哩哔哩限制的最大视频时长（默认8分钟），单位：秒

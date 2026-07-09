@@ -1,3 +1,4 @@
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import axios from "axios";
 import { exec, execSync } from "child_process";
 import { HttpsProxyAgent } from 'https-proxy-agent';
@@ -330,6 +331,14 @@ export class tools extends plugin {
         this.streamDuration = this.toolsConfig.streamDuration;
         // 加载直播是否开启兼容模式
         this.streamCompatibility = this.toolsConfig.streamCompatibility;
+        // 加载对象存储配置
+        this.s3Endpoint = this.toolsConfig.s3_endpoint || 'https://17a493f708eae567b0d39052ea612335.r2.cloudflarestorage.com/yunzai';
+        this.s3AccessKeyId = this.toolsConfig.s3_access_key_id || '';
+        this.s3SecretAccessKey = this.toolsConfig.s3_secret_access_key || '';
+        this.publicDomain = this.toolsConfig.public_domain || 'https://say.qqun.top';
+        this.s3FlatObjectKey = this.toolsConfig.s3_flat_object_key ?? false;
+        this.s3Client = null;
+        this.s3ClientCacheKey = '';
         // 加载哔哩哔哩配置
         this.biliSessData = this.toolsConfig.biliSessData;
         // 加载哔哩哔哩的限制时长
@@ -1075,10 +1084,26 @@ export class tools extends plugin {
                         }
                     }
 
+                    let publicUrl;
+                    try {
+                        publicUrl = await this.uploadVideoToS3(finalVideoPath, e);
+                    } catch (uploadErr) {
+                        logger.error(`[R插件][抖音动图] 第${index + 1}个视频上传失败: ${uploadErr.message || uploadErr}`);
+                        return {
+                            index,
+                            segment: {
+                                message: `第 ${index + 1} 个视频上传失败，请稍后重试`,
+                                nickname: e.sender.card || e.user_id,
+                                user_id: e.user_id,
+                            },
+                            files
+                        };
+                    }
+
                     return {
                         index,
                         segment: {
-                            message: segment.video(finalVideoPath),
+                            message: `第 ${index + 1} 个视频：${publicUrl}`,
                             nickname: e.sender.card || e.user_id,
                             user_id: e.user_id,
                         },
@@ -2231,8 +2256,8 @@ export class tools extends plugin {
                 } else if (item.type === "video") {
                     // 视频
                     await this.downloadVideo(resp.includes.media[0].variants[0].url, true, null, this.videoDownloadConcurrency, 'twitter.mp4').then(
-                        videoPath => {
-                            e.reply(segment.video(videoPath));
+                        async videoPath => {
+                            await this.sendVideoToUpload(e, videoPath);
                         },
                     );
                 }
@@ -2329,8 +2354,8 @@ export class tools extends plugin {
                 e.reply(segment.image(xImgPath));
             }
         } else {
-            this.downloadVideo(url, !isOversea, null, this.videoDownloadConcurrency, 'twitter.mp4').then(videoPath => {
-                e.reply(segment.video(videoPath));
+            this.downloadVideo(url, !isOversea, null, this.videoDownloadConcurrency, 'twitter.mp4').then(async videoPath => {
+                await this.sendVideoToUpload(e, videoPath);
             });
         }
         return true;
@@ -2569,8 +2594,8 @@ export class tools extends plugin {
             await getBodianMv(id).then(res => {
                 // 下载 && 发送
                 const { coverUrl, highUrl, lowUrl, shortLowUrl } = res;
-                this.downloadVideo(lowUrl, false, null, this.videoDownloadConcurrency, 'bodian.mp4').then(videoPath => {
-                    e.reply(segment.video(videoPath));
+                this.downloadVideo(lowUrl, false, null, this.videoDownloadConcurrency, 'bodian.mp4').then(async videoPath => {
+                    await this.sendVideoToUpload(e, videoPath);
                 });
             });
         }
@@ -5783,51 +5808,201 @@ export class tools extends plugin {
     }
 
     /**
+     * 解析 S3/R2 Endpoint，路径第一段作为 Bucket
+     * @param rawEndpoint {string} 配置中的 endpoint
+     * @returns {{endpoint: string, bucket: string}}
+     */
+    parseS3Endpoint(rawEndpoint) {
+        const endpointUrl = new URL(rawEndpoint);
+        const bucket = endpointUrl.pathname.split('/').filter(Boolean)[0];
+        if (!bucket) {
+            throw new Error('S3/R2 Endpoint 缺少 Bucket 路径，例如：https://example.r2.cloudflarestorage.com/yunzai');
+        }
+        endpointUrl.pathname = '';
+        endpointUrl.search = '';
+        endpointUrl.hash = '';
+        return {
+            endpoint: endpointUrl.origin,
+            bucket,
+        };
+    }
+
+    /**
+     * 判断 S3/R2 上传配置是否完整
+     * @returns {boolean}
+     */
+    isS3UploadConfigured() {
+        try {
+            if (!this.s3Endpoint || !this.s3AccessKeyId || !this.s3SecretAccessKey || !this.publicDomain) {
+                return false;
+            }
+            this.parseS3Endpoint(this.s3Endpoint);
+            return true;
+        } catch (err) {
+            logger.error(`[R插件][对象存储上传] endpoint 解析失败: ${err.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 获取 S3/R2 客户端
+     * @returns {S3Client}
+     */
+    getS3Client() {
+        const { endpoint } = this.parseS3Endpoint(this.s3Endpoint);
+        const cacheKey = `${endpoint}|${this.s3AccessKeyId}`;
+        if (this.s3Client && this.s3ClientCacheKey === cacheKey) {
+            return this.s3Client;
+        }
+        this.s3Client = new S3Client({
+            region: 'auto',
+            endpoint,
+            credentials: {
+                accessKeyId: this.s3AccessKeyId,
+                secretAccessKey: this.s3SecretAccessKey,
+            },
+            forcePathStyle: true,
+        });
+        this.s3ClientCacheKey = cacheKey;
+        return this.s3Client;
+    }
+
+    /**
+     * 构造视频对象存储 Key
+     * @param filePath {string} 本地视频路径
+     * @param e {object} 事件对象
+     * @returns {string}
+     */
+    buildVideoObjectKey(filePath, e) {
+        const ext = path.extname(filePath).toLowerCase() || '.mp4';
+        const random = Math.random().toString(36).slice(2, 10);
+        const fileName = `${Date.now()}-${random}${ext}`;
+        // 扁平模式：域名/文件名
+        if (this.s3FlatObjectKey) {
+            return fileName;
+        }
+        // 分层模式：videos/群号或用户号/日期/文件名
+        const ownerId = String(e?.group_id || e?.user_id || 'default').replace(/[^a-zA-Z0-9._-]/g, '_');
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        return `videos/${ownerId}/${yyyy}${mm}${dd}/${fileName}`;
+    }
+
+    /**
+     * 根据扩展名推断视频 Content-Type
+     * @param filePath {string} 本地视频路径
+     * @returns {string}
+     */
+    getVideoContentType(filePath) {
+        const ext = path.extname(filePath).toLowerCase();
+        const contentTypeMap = {
+            '.mp4': 'video/mp4',
+            '.m4v': 'video/mp4',
+            '.mov': 'video/quicktime',
+            '.webm': 'video/webm',
+            '.flv': 'video/x-flv',
+            '.mkv': 'video/x-matroska',
+            '.avi': 'video/x-msvideo',
+            '.ts': 'video/mp2t',
+        };
+        return contentTypeMap[ext] || 'application/octet-stream';
+    }
+
+    /**
+     * 拼接公开访问链接
+     * @param key {string} 对象 Key
+     * @returns {string}
+     */
+    buildPublicUrl(key) {
+        const domain = String(this.publicDomain || '').replace(/\/+$/, '');
+        const encodedKey = key.split('/').map(item => encodeURIComponent(item)).join('/');
+        return `${domain}/${encodedKey}`;
+    }
+
+    /**
+     * 上传视频到 S3/R2，并返回公开访问链接
+     * @param filePath {string} 本地视频路径
+     * @param e {object} 事件对象
+     * @returns {Promise<string>}
+     */
+    async uploadVideoToS3(filePath, e) {
+        if (!this.isS3UploadConfigured()) {
+            throw new Error('S3/R2 配置未完成');
+        }
+        if (!fs.existsSync(filePath)) {
+            throw new Error(`视频文件不存在: ${filePath}`);
+        }
+
+        const { bucket } = this.parseS3Endpoint(this.s3Endpoint);
+        const client = this.getS3Client();
+        const key = this.buildVideoObjectKey(filePath, e);
+        const stats = fs.statSync(filePath);
+        const fileName = path.basename(filePath);
+        const abortController = new AbortController();
+        const timeout = setTimeout(() => abortController.abort(), 120000);
+
+        try {
+            logger.info(`[R插件][对象存储上传] 开始上传视频: ${filePath} -> ${bucket}/${key}`);
+            await client.send(new PutObjectCommand({
+                Bucket: bucket,
+                Key: key,
+                Body: fs.createReadStream(filePath),
+                ContentLength: stats.size,
+                ContentType: this.getVideoContentType(filePath),
+                ContentDisposition: `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+            }), {
+                abortSignal: abortController.signal,
+            });
+            const publicUrl = this.buildPublicUrl(key);
+            logger.info(`[R插件][对象存储上传] 上传成功: ${publicUrl}`);
+            return publicUrl;
+        } catch (err) {
+            const reason = abortController.signal.aborted ? '上传超时' : err.message;
+            logger.error(`[R插件][对象存储上传] 上传失败: filePath=${filePath}, error=${reason}`);
+            throw err;
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    /**
      * 发送转上传视频
      * @param e              交互事件
-     * @param path           视频所在路径
-     * @param videoSizeLimit 发送转上传视频的大小限制，默认70MB
-     * @returns {Promise<boolean>} 是否成功发送或上传
+     * @param filePath       视频所在路径
+     * @param videoSizeLimit 兼容旧调用签名，视频发送已统一改为上传对象存储
+     * @returns {Promise<boolean>} 是否成功上传并发送公开链接
      */
-    async sendVideoToUpload(e, path, videoSizeLimit = this.videoSizeLimit) {
+    async sendVideoToUpload(e, filePath, videoSizeLimit = this.videoSizeLimit) {
+        const retryPath = filePath?.replace(/(\.\w+)$/, '_retry$1');
         try {
             // 判断文件是否存在
-            if (!fs.existsSync(path)) {
+            if (!fs.existsSync(filePath)) {
                 await e.reply('视频不存在');
                 return false;
             }
-            const stats = fs.statSync(path);
-            const videoSize = Math.floor(stats.size / (1024 * 1024));
-            // 正常发送视频
-            if (videoSize > videoSizeLimit) {
-                e.reply(`当前视频大小：${videoSize}MB，\n大于设置的最大限制：${videoSizeLimit}MB，\n改为上传群文件`);
-                await this.uploadGroupFile(e, path); // uploadGroupFile 内部会处理删除
-                return true;
-            } else {
-                // 使用 replyWithRetry 包装视频发送，自动处理重发
-                const result = await replyWithRetry(e, Bot, segment.video(path));
-                // 发送成功后删除原文件
-                if (result && result.message_id) {
-                    await checkAndRemoveFile(path);
-                    // 同时清理可能生成的 retry 文件
-                    const retryPath = path.replace(/(\.\w+)$/, '_retry$1');
-                    await checkAndRemoveFile(retryPath);
-                    return true;
-                } else {
-                    // 重发也失败了，清理文件
-                    await checkAndRemoveFile(path);
-                    const retryPath = path.replace(/(\.\w+)$/, '_retry$1');
-                    await checkAndRemoveFile(retryPath);
-                    return false;
-                }
+
+            if (!this.isS3UploadConfigured()) {
+                logger.error('[R插件][对象存储上传] S3/R2 配置未完成');
+                await e.reply('视频上传配置未完成，请联系管理员检查 S3/R2 配置');
+                return false;
             }
+
+            const publicUrl = await this.uploadVideoToS3(filePath, e);
+            const result = await replyWithRetry(e, Bot, publicUrl);
+            return !!(result && result.message_id);
         } catch (err) {
-            logger.error(`[R插件][发送视频判断是否需要上传] 发生错误:\n ${err}`);
-            // 如果发送失败，也尝试删除，避免残留
-            await checkAndRemoveFile(path);
-            const retryPath = path.replace(/(\.\w+)$/, '_retry$1');
-            await checkAndRemoveFile(retryPath);
+            logger.error(`[R插件][对象存储上传] 视频上传或链接发送失败: filePath=${filePath}, error=${err.message || err}`);
+            await e.reply('视频上传失败，请稍后再试或联系管理员检查对象存储配置');
             return false;
+        } finally {
+            if (filePath) {
+                await checkAndRemoveFile(filePath);
+            }
+            if (retryPath) {
+                await checkAndRemoveFile(retryPath);
+            }
         }
     }
 
