@@ -5875,8 +5875,8 @@ export class tools extends plugin {
      */
     buildVideoObjectKey(filePath, e) {
         const ext = path.extname(filePath).toLowerCase() || '.mp4';
-        const random = Math.random().toString(36).slice(2, 10);
-        const fileName = `${Date.now()}-${random}${ext}`;
+        const random = Math.floor(Math.random() * 1296).toString(36).padStart(2, '0');
+        const fileName = `${String(Date.now()).slice(-2)}${random}${ext}`;
         // 扁平模式：域名/文件名
         if (this.s3FlatObjectKey) {
             return fileName;
