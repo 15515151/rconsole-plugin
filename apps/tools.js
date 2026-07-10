@@ -854,6 +854,11 @@ export class tools extends plugin {
             enableComments = false,
         } = options;
 
+        // 如果开启了合并转发，则发送预提示
+        if (this.douyinMergeVideoMsg && enableComments && commentHeaders) {
+            await e.reply("检测到抖音链接，请稍候...");
+        }
+
         let dySendContent = `${this.identifyPrefix}识别：抖音，${authorNickname}\n📝 简介：${desc}`;
         if (durationSeconds >= this.douyinDuration) {
             // 超过时长阈值时沿用老行为：只提示，不发送视频。
@@ -898,7 +903,7 @@ export class tools extends plugin {
             // 2.1 添加视频直链到转发消息
             if (videoDirectUrl) {
                 forwardMsg.push({
-                    message: `🔗 视频直链：${videoDirectUrl}`,
+                    message: `${videoDirectUrl}`,
                     nickname: Bot.nickname,
                     user_id: Bot.uin,
                 });
@@ -1584,6 +1589,11 @@ export class tools extends plugin {
             logger.info(`[R插件][全局解析控制] ${RESOLVE_CONTROLLER_NAME_ENUM.bili} 已拦截`);
             return false;
         }
+
+        // 如果开启了合并转发，则发送预提示
+        if (this.biliMergeVideoMsg) {
+            await e.reply("检测到B站链接，请稍候...");
+        }
         const urlRex = /(?:https?:\/\/)?www\.bilibili\.com\/[A-Za-z\d._?%&+\-=\/#]*/g;
         const bShortRex = /(http:|https:)\/\/(b23.tv|bili2233.cn)\/[A-Za-z\d._?%&+\-=\/#]*/g;
         let url = e.msg === undefined ? e.message.shift().data.replaceAll("\\", "") : e.msg.trim().replaceAll("\\", "");
@@ -1771,7 +1781,7 @@ export class tools extends plugin {
                 // 2. 添加视频直链（使用上传后的 MP4 直链）
                 if (videoDirectUrl) {
                     forwardMsg.push({
-                        message: `🔗 视频直链：${videoDirectUrl}`,
+                        message: `${videoDirectUrl}`,
                         nickname: Bot.nickname,
                         user_id: Bot.uin,
                     });
