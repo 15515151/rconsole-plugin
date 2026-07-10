@@ -891,9 +891,18 @@ export class tools extends plugin {
                 });
             }
 
-            // 2. 下载并发送视频
+            // 2. 下载并上传视频，获取直链
             const videoPath = await this.downloadVideo(videoUrl, false, downloadHeaders, this.videoDownloadConcurrency, 'douyin.mp4');
-            await this.sendVideoToUpload(e, videoPath);
+            const videoDirectUrl = await this.sendVideoToUpload(e, videoPath, this.videoSizeLimit, true);
+
+            // 2.1 添加视频直链到转发消息
+            if (videoDirectUrl) {
+                forwardMsg.push({
+                    message: `🔗 视频直链：${videoDirectUrl}`,
+                    nickname: Bot.nickname,
+                    user_id: Bot.uin,
+                });
+            }
 
             // 3. 获取评论数据
             const commentData = await this.douyinComment(e, douId, commentHeaders, desc, coverUrl, author, true); // returnData = true
@@ -1668,7 +1677,7 @@ export class tools extends plugin {
                 // 生成番剧文件名：标题+集数+话（如：凡人修仙传173话）
                 const bangumiFilename = `${bangumiInfo.title}${bangumiInfo.episodeNumber}话`;
                 logger.info(`[R插件][番剧下载] ${bangumiFilename} | 画质:${this.biliBangumiResolution}`);
-                await this.biliDownloadStrategy(e, `https://www.bilibili.com/bangumi/play/ep${bangumiInfo.ep}`, path, this.biliBangumiResolution, 0, bangumiFilename, true);
+                await this.biliDownloadStrategy(e, `https://www.bilibili.com/bangumi/play/ep${bangumiInfo.ep}`, path, this.biliBangumiResolution, 0, bangumiFilename, false);
             }
             // 番剧直接解析关闭时，仅显示信息不下载
             return true;
@@ -1740,9 +1749,13 @@ export class tools extends plugin {
             return await this.biliMusic(e, url);
         }
         // 下载文件
-        const isBiliVideoSent = await this.biliDownloadStrategy(e, url, path, null, durationForCheck, bvid);
+        const videoResult = await this.biliDownloadStrategy(e, url, path, null, durationForCheck, bvid, this.biliMergeVideoMsg);
 
         // 处理评论：根据配置决定是否合并转发
+        // videoResult 在合并转发模式下是直链字符串，否则是 boolean
+        const isBiliVideoSent = this.biliMergeVideoMsg ? !!videoResult : videoResult;
+        const videoDirectUrl = this.biliMergeVideoMsg ? videoResult : null;
+
         if (isBiliVideoSent) {
             if (this.biliMergeVideoMsg) {
                 // 合并转发模式：收集视频信息、视频URL、评论
@@ -1755,12 +1768,14 @@ export class tools extends plugin {
                     user_id: Bot.uin,
                 });
 
-                // 2. 添加视频URL
-                forwardMsg.push({
-                    message: `🔗 视频链接：${url}`,
-                    nickname: Bot.nickname,
-                    user_id: Bot.uin,
-                });
+                // 2. 添加视频直链（使用上传后的 MP4 直链）
+                if (videoDirectUrl) {
+                    forwardMsg.push({
+                        message: `🔗 视频直链：${videoDirectUrl}`,
+                        nickname: Bot.nickname,
+                        user_id: Bot.uin,
+                    });
+                }
 
                 // 3. 获取评论数据（如果开启了评论）
                 if (this.biliComments) {
@@ -1991,9 +2006,10 @@ export class tools extends plugin {
      * @param resolution 可选的分辨率参数，不传则使用默认配置
      * @param duration   视频时长（秒），用于文件大小估算
      * @param filename   可选的文件名（不含扩展名），用于番剧等特殊命名
-     * @returns {Promise<boolean>}
+     * @param skipSend   是否跳过发送直链（用于合并转发模式），默认 false
+     * @returns {Promise<boolean|string>} skipSend=false时返回是否成功，skipSend=true时返回直链URL
      */
-    async biliDownloadStrategy(e, url, path, resolution = null, duration = 0, filename = null) {
+    async biliDownloadStrategy(e, url, path, resolution = null, duration = 0, filename = null, skipSend = false) {
         // 使用传入的分辨率或默认分辨率
         const useResolution = resolution !== null ? resolution : this.biliResolution;
         // 使用传入的文件名或默认的temp
@@ -2047,7 +2063,7 @@ export class tools extends plugin {
                             return false;
                         }
                     }
-                    const isSent = await this.sendVideoToUpload(e, videoPath);
+                    const isSent = await this.sendVideoToUpload(e, videoPath, this.videoSizeLimit, skipSend);
                     // 删除BBDown创建的子文件夹（如果有）
                     if (subFolderToDelete) {
                         try {
@@ -2099,7 +2115,7 @@ export class tools extends plugin {
                 }
 
                 // 上传视频
-                return await this.sendVideoToUpload(e, `${tempPath}.mp4`);
+                return await this.sendVideoToUpload(e, `${tempPath}.mp4`, this.videoSizeLimit, skipSend);
             } catch (err) {
                 // 错误处理
                 logger.error('[R插件][哔哩哔哩视频发送]下载错误，具体原因为:', err);
@@ -6109,30 +6125,37 @@ export class tools extends plugin {
      * @param e              交互事件
      * @param filePath       视频所在路径
      * @param videoSizeLimit 兼容旧调用签名，视频发送已统一改为上传对象存储
-     * @returns {Promise<boolean>} 是否成功上传并发送公开链接
+     * @param skipSend       是否跳过发送直链（用于合并转发模式），默认 false
+     * @returns {Promise<string|boolean>} skipSend=true时返回直链URL，否则返回是否成功发送
      */
-    async sendVideoToUpload(e, filePath, videoSizeLimit = this.videoSizeLimit) {
+    async sendVideoToUpload(e, filePath, videoSizeLimit = this.videoSizeLimit, skipSend = false) {
         const retryPath = filePath?.replace(/(\.\w+)$/, '_retry$1');
         try {
             // 判断文件是否存在
             if (!fs.existsSync(filePath)) {
                 await e.reply('视频不存在');
-                return false;
+                return skipSend ? null : false;
             }
 
             if (!this.isS3UploadConfigured()) {
                 logger.error('[R插件][对象存储上传] S3/R2 配置未完成');
                 await e.reply('视频上传配置未完成，请联系管理员检查 S3/R2 配置');
-                return false;
+                return skipSend ? null : false;
             }
 
             const publicUrl = await this.uploadVideoToS3(filePath, e);
+
+            // 如果 skipSend=true，直接返回直链，不发送消息
+            if (skipSend) {
+                return publicUrl;
+            }
+
             const result = await replyWithRetry(e, Bot, publicUrl);
             return !!(result && result.message_id);
         } catch (err) {
             logger.error(`[R插件][对象存储上传] 视频上传或链接发送失败: filePath=${filePath}, error=${err.message || err}`);
             await e.reply('视频上传失败，请稍后再试或联系管理员检查对象存储配置');
-            return false;
+            return skipSend ? null : false;
         } finally {
             if (filePath) {
                 await checkAndRemoveFile(filePath);
