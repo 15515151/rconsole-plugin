@@ -461,6 +461,14 @@ export function supportGuoba() {
                     },
                     required: false,
                 },
+                {
+                    field: "tools.biliMergeVideoMsg",
+                    label: "合并转发视频解析消息",
+                    bottomHelpMessage:
+                        "开启后，将视频信息、链接和评论区图片打包成合并聊天记录发送，防止刷屏（默认开启）",
+                    component: "Switch",
+                    required: false,
+                },
 
                 // ==================== 抖音 ====================
                 {
@@ -545,6 +553,14 @@ export function supportGuoba() {
                     componentProps: {
                         options: DOUYIN_COMMENT_CHUNK_SIZE_LIST,
                     },
+                    required: false,
+                },
+                {
+                    field: "tools.douyinMergeVideoMsg",
+                    label: "合并转发视频解析消息",
+                    bottomHelpMessage:
+                        "开启后，将视频信息、链接和评论区图片打包成合并聊天记录发送，防止刷屏（默认开启）",
+                    component: "Switch",
                     required: false,
                 },
                 {

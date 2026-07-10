@@ -361,6 +361,8 @@ export class tools extends plugin {
         this.biliCommentCount = this.toolsConfig.biliCommentCount ?? 5;
         // 加载哔哩哔哩评论单张截图展示数量
         this.biliCommentChunkSize = this.toolsConfig.biliCommentChunkSize ?? 10;
+        // 加载哔哩哔哩是否合并转发视频解析消息
+        this.biliMergeVideoMsg = this.toolsConfig.biliMergeVideoMsg ?? true;
         // 加载哔哩哔哩是否使用BBDown
         this.biliUseBBDown = this.toolsConfig.biliUseBBDown;
         // 加载 BBDown 的CDN配置
@@ -422,6 +424,8 @@ export class tools extends plugin {
         this.douyinCommentCount = this.toolsConfig.douyinCommentCount ?? 5;
         // 加载抖音评论单张截图展示数量
         this.douyinCommentChunkSize = this.toolsConfig.douyinCommentChunkSize ?? 10;
+        // 加载抖音是否合并转发视频解析消息
+        this.douyinMergeVideoMsg = this.toolsConfig.douyinMergeVideoMsg ?? true;
         // 加载抖音是否开启背景音乐
         this.douyinMusic = this.toolsConfig.douyinMusic ?? true;
         // 加载抖音背景音乐发送方式
@@ -867,18 +871,69 @@ export class tools extends plugin {
             return;
         }
 
-        if (this.douyinDisplayCover && coverUrl) {
-            await replyWithRetry(e, Bot, [segment.image(coverUrl), dySendContent]);
+        // 根据配置决定是否合并转发
+        if (this.douyinMergeVideoMsg && enableComments && commentHeaders) {
+            // 合并转发模式：收集视频信息、视频、评论
+            const forwardMsg = [];
+
+            // 1. 添加视频信息（包含封面）
+            if (this.douyinDisplayCover && coverUrl) {
+                forwardMsg.push({
+                    message: [segment.image(coverUrl), dySendContent],
+                    nickname: Bot.nickname,
+                    user_id: Bot.uin,
+                });
+            } else {
+                forwardMsg.push({
+                    message: dySendContent,
+                    nickname: Bot.nickname,
+                    user_id: Bot.uin,
+                });
+            }
+
+            // 2. 下载并发送视频
+            const videoPath = await this.downloadVideo(videoUrl, false, downloadHeaders, this.videoDownloadConcurrency, 'douyin.mp4');
+            await this.sendVideoToUpload(e, videoPath);
+
+            // 3. 获取评论数据
+            const commentData = await this.douyinComment(e, douId, commentHeaders, desc, coverUrl, author, true); // returnData = true
+
+            // 将评论数据添加到转发消息
+            if (commentData && commentData.length > 0) {
+                // 如果是图片数组（截图模式）
+                if (commentData[0] && typeof commentData[0] !== 'object') {
+                    commentData.forEach(img => {
+                        forwardMsg.push({
+                            message: img,
+                            nickname: Bot.nickname,
+                            user_id: Bot.uin,
+                        });
+                    });
+                } else {
+                    // 如果是转发消息格式（回退模式）
+                    forwardMsg.push(...commentData);
+                }
+            }
+
+            // 发送合并转发消息
+            if (forwardMsg.length > 1) {
+                await e.reply(Bot.makeForwardMsg(forwardMsg));
+            }
         } else {
-            e.reply(dySendContent);
-        }
+            // 传统模式：分别发送
+            if (this.douyinDisplayCover && coverUrl) {
+                await replyWithRetry(e, Bot, [segment.image(coverUrl), dySendContent]);
+            } else {
+                e.reply(dySendContent);
+            }
 
-        // downloadHeaders 允许 SSR 兜底链路把 Referer 等请求头透传到下载器。
-        const videoPath = await this.downloadVideo(videoUrl, false, downloadHeaders, this.videoDownloadConcurrency, 'douyin.mp4');
-        await this.sendVideoToUpload(e, videoPath);
+            // downloadHeaders 允许 SSR 兜底链路把 Referer 等请求头透传到下载器。
+            const videoPath = await this.downloadVideo(videoUrl, false, downloadHeaders, this.videoDownloadConcurrency, 'douyin.mp4');
+            await this.sendVideoToUpload(e, videoPath);
 
-        if (enableComments && commentHeaders) {
-            await this.douyinComment(e, douId, commentHeaders, desc, coverUrl, author);
+            if (enableComments && commentHeaders) {
+                await this.douyinComment(e, douId, commentHeaders, desc, coverUrl, author);
+            }
         }
     }
 
@@ -1256,15 +1311,15 @@ export class tools extends plugin {
      * @param title
      * @param cover
      */
-    async douyinComment(e, douId, headers, title = "", cover = "", author = {}) {
+    async douyinComment(e, douId, headers, title = "", cover = "", author = {}, returnData = false) {
         if (!this.douyinComments) {
-            return;
+            return returnData ? [] : undefined;
         }
         try {
             const commentsResp = await fetchDouyinComments(douId, headers);
             const comments = commentsResp?.comments || [];
             if (comments.length === 0) {
-                return;
+                return returnData ? [] : undefined;
             }
 
             const emojiMap = await getDouyinEmojiMap(headers);
@@ -1275,6 +1330,7 @@ export class tools extends plugin {
                 .slice(0, commentLimit);
             const chunkSize = Number(this.douyinCommentChunkSize) > 0 ? Number(this.douyinCommentChunkSize) : 10;
 
+            const commentImages = [];
             try {
                 for (let i = 0; i < displayComments.length; i += chunkSize) {
                     const chunkComments = displayComments.slice(i, i + chunkSize);
@@ -1288,9 +1344,13 @@ export class tools extends plugin {
                         })
                     );
                     const img = await puppeteer.screenshot("douyinComment", renderData);
-                    await e.reply(img, true);
+                    if (returnData) {
+                        commentImages.push(img);
+                    } else {
+                        await e.reply(img, true);
+                    }
                 }
-                return;
+                return returnData ? commentImages : undefined;
             } catch (screenErr) {
                 logger.warn(`[R插件][抖音评论] 图片渲染失败，回退转发消息: ${screenErr.message}`);
             }
@@ -1300,9 +1360,15 @@ export class tools extends plugin {
                 nickname: this.e.sender.card || this.e.user_id,
                 user_id: this.e.user_id,
             }));
-            e.reply(await Bot.makeForwardMsg(replyComments));
+
+            if (returnData) {
+                return replyComments;
+            } else {
+                e.reply(await Bot.makeForwardMsg(replyComments));
+            }
         } catch (err) {
             logger.warn(`[R插件][抖音评论] 获取失败，跳过: ${err.message}`);
+            return returnData ? [] : undefined;
         }
     }
 
@@ -1311,10 +1377,12 @@ export class tools extends plugin {
      * @param e
      * @param oid 视频 aid
      * @param context 视频上下文
+     * @param returnData 是否返回数据而不是直接发送（用于合并转发）
+     * @returns {Promise<Array|void>} 当 returnData=true 时返回评论图片数组
      */
-    async biliComment(e, oid, context = {}) {
+    async biliComment(e, oid, context = {}, returnData = false) {
         if (!this.biliComments || !oid) {
-            return;
+            return returnData ? [] : undefined;
         }
         try {
             const commentLimit = Number(this.biliCommentCount) > 0 ? Number(this.biliCommentCount) : 5;
@@ -1325,12 +1393,13 @@ export class tools extends plugin {
             });
             const comments = commentsResp?.replies || [];
             if (comments.length === 0) {
-                return;
+                return returnData ? [] : undefined;
             }
 
             const displayComments = comments.slice(0, commentLimit);
             const chunkSize = Number(this.biliCommentChunkSize) > 0 ? Number(this.biliCommentChunkSize) : 10;
 
+            const commentImages = [];
             try {
                 for (let i = 0; i < displayComments.length; i += chunkSize) {
                     const chunkComments = displayComments.slice(i, i + chunkSize);
@@ -1344,9 +1413,13 @@ export class tools extends plugin {
                         })
                     );
                     const img = await puppeteer.screenshot("biliComment", renderData);
-                    await e.reply(img, true);
+                    if (returnData) {
+                        commentImages.push(img);
+                    } else {
+                        await e.reply(img, true);
+                    }
                 }
-                return;
+                return returnData ? commentImages : undefined;
             } catch (screenErr) {
                 logger.warn(`[R插件][B站评论] 图片渲染失败，回退转发消息: ${screenErr.message}`);
             }
@@ -1369,9 +1442,16 @@ export class tools extends plugin {
                     user_id: e.user_id,
                 };
             });
-            await replyWithRetry(e, Bot, await Bot.makeForwardMsg(replyComments));
+
+            if (returnData) {
+                // 返回转发消息格式的数据
+                return replyComments;
+            } else {
+                await replyWithRetry(e, Bot, await Bot.makeForwardMsg(replyComments));
+            }
         } catch (err) {
             logger.warn(`[R插件][B站评论] 获取失败，跳过: ${err.message}`);
+            return returnData ? [] : undefined;
         }
     }
 
@@ -1645,24 +1725,81 @@ export class tools extends plugin {
         // 限制视频解析（仅在未启用智能分辨率时生效）
         if (isLimitDuration) {
             const durationInMinutes = (durationForCheck / 60).toFixed(0); // 使用 durationForCheck
-            biliInfo.push(`${DIVIDING_LINE.replace('{}', '限制说明')}\n当前视频时长约：${durationInMinutes}分钟，\n大于管理员设置的最大时长 ${(this.biliDuration / 60).toFixed(2).replace(/\.00$/, '')} 分钟！`);
+            biliInfo.push(`${DIVIDING_LINE.replace('', '限制说明')}\n当前视频时长约：${durationInMinutes}分钟，\n大于管理员设置的最大时长 ${(this.biliDuration / 60).toFixed(2).replace(/\.00$/, '')} 分钟！`);
             await replyWithRetry(e, Bot, biliInfo);
             return true;
-        } else {
+        }
+
+        // 如果不使用合并转发，先发送视频信息
+        if (!this.biliMergeVideoMsg) {
             await replyWithRetry(e, Bot, biliInfo);
         }
+
         // 只提取音乐处理
         if (e.msg !== undefined && e.msg.startsWith("音乐")) {
             return await this.biliMusic(e, url);
         }
         // 下载文件
         const isBiliVideoSent = await this.biliDownloadStrategy(e, url, path, null, durationForCheck, bvid);
+
+        // 处理评论：根据配置决定是否合并转发
         if (isBiliVideoSent) {
-            await this.biliComment(e, videoInfo.aid, {
-                title: displayTitle,
-                cover: videoInfo.pic,
-                ownerMid: owner.mid
-            });
+            if (this.biliMergeVideoMsg) {
+                // 合并转发模式：收集视频信息、视频URL、评论
+                const forwardMsg = [];
+
+                // 1. 添加视频信息
+                forwardMsg.push({
+                    message: biliInfo,
+                    nickname: Bot.nickname,
+                    user_id: Bot.uin,
+                });
+
+                // 2. 添加视频URL
+                forwardMsg.push({
+                    message: `🔗 视频链接：${url}`,
+                    nickname: Bot.nickname,
+                    user_id: Bot.uin,
+                });
+
+                // 3. 获取评论数据（如果开启了评论）
+                if (this.biliComments) {
+                    const commentData = await this.biliComment(e, videoInfo.aid, {
+                        title: displayTitle,
+                        cover: videoInfo.pic,
+                        ownerMid: owner.mid
+                    }, true); // returnData = true
+
+                    // 将评论数据添加到转发消息
+                    if (commentData && commentData.length > 0) {
+                        // 如果是图片数组（截图模式）
+                        if (commentData[0] && !commentData[0].message) {
+                            commentData.forEach(img => {
+                                forwardMsg.push({
+                                    message: img,
+                                    nickname: Bot.nickname,
+                                    user_id: Bot.uin,
+                                });
+                            });
+                        } else {
+                            // 如果是转发消息格式（回退模式）
+                            forwardMsg.push(...commentData);
+                        }
+                    }
+                }
+
+                // 发送合并转发消息（只要有内容就发送）
+                if (forwardMsg.length > 0) {
+                    await e.reply(Bot.makeForwardMsg(forwardMsg));
+                }
+            } else {
+                // 传统模式：直接发送评论
+                await this.biliComment(e, videoInfo.aid, {
+                    title: displayTitle,
+                    cover: videoInfo.pic,
+                    ownerMid: owner.mid
+                });
+            }
         }
         return true;
     }
