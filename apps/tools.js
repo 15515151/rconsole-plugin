@@ -856,7 +856,7 @@ export class tools extends plugin {
 
         // 如果开启了合并转发，则发送预提示
         if (this.douyinMergeVideoMsg && enableComments && commentHeaders) {
-            await e.reply("检测到抖音链接，请稍候...");
+            await e.reply("${authorNickname}");
         }
 
         let dySendContent = `${this.identifyPrefix}识别：抖音，${authorNickname}\n📝 简介：${desc}`;
@@ -1592,7 +1592,7 @@ export class tools extends plugin {
 
         // 如果开启了合并转发，则发送预提示
         if (this.biliMergeVideoMsg) {
-            await e.reply("检测到B站链接，请稍候...");
+            await e.reply("${displayTitle}");
         }
         const urlRex = /(?:https?:\/\/)?www\.bilibili\.com\/[A-Za-z\d._?%&+\-=\/#]*/g;
         const bShortRex = /(http:|https:)\/\/(b23.tv|bili2233.cn)\/[A-Za-z\d._?%&+\-=\/#]*/g;
