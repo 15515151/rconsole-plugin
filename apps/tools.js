@@ -885,14 +885,14 @@ export class tools extends plugin {
             if (this.douyinDisplayCover && coverUrl) {
                 forwardMsg.push({
                     message: [segment.image(coverUrl), dySendContent],
-                    nickname: Bot.nickname,
-                    user_id: Bot.uin,
+                    nickname: e.sender.card || e.sender.nickname || e.user_id,
+                    user_id: e.user_id,
                 });
             } else {
                 forwardMsg.push({
                     message: dySendContent,
-                    nickname: Bot.nickname,
-                    user_id: Bot.uin,
+                    nickname: e.sender.card || e.sender.nickname || e.user_id,
+                    user_id: e.user_id,
                 });
             }
 
@@ -904,8 +904,8 @@ export class tools extends plugin {
             if (videoDirectUrl) {
                 forwardMsg.push({
                     message: `${videoDirectUrl}`,
-                    nickname: Bot.nickname,
-                    user_id: Bot.uin,
+                    nickname: e.sender.card || e.sender.nickname || e.user_id,
+                    user_id: e.user_id,
                 });
             }
 
@@ -919,8 +919,8 @@ export class tools extends plugin {
                     commentData.forEach(img => {
                         forwardMsg.push({
                             message: img,
-                            nickname: Bot.nickname,
-                            user_id: Bot.uin,
+                            nickname: e.sender.card || e.sender.nickname || e.user_id,
+                            user_id: e.user_id,
                         });
                     });
                 } else {
@@ -1774,16 +1774,16 @@ export class tools extends plugin {
                 // 1. 添加视频信息
                 forwardMsg.push({
                     message: biliInfo,
-                    nickname: Bot.nickname,
-                    user_id: Bot.uin,
+                    nickname: e.sender.card || e.sender.nickname || e.user_id,
+                    user_id: e.user_id,
                 });
 
                 // 2. 添加视频直链（使用上传后的 MP4 直链）
                 if (videoDirectUrl) {
                     forwardMsg.push({
                         message: `${videoDirectUrl}`,
-                        nickname: Bot.nickname,
-                        user_id: Bot.uin,
+                        nickname: e.sender.card || e.sender.nickname || e.user_id,
+                        user_id: e.user_id,
                     });
                 }
 
@@ -1802,8 +1802,8 @@ export class tools extends plugin {
                             commentData.forEach(img => {
                                 forwardMsg.push({
                                     message: img,
-                                    nickname: Bot.nickname,
-                                    user_id: Bot.uin,
+                                    nickname: e.sender.card || e.sender.nickname || e.user_id,
+                                    user_id: e.user_id,
                                 });
                             });
                         } else {
