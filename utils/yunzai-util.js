@@ -16,6 +16,37 @@ export function textArrayToMakeForward(e, textArray) {
 }
 
 /**
+ * 构造单个合并转发节点，作者身份统一取「触发者」
+ * @param e
+ * @param message  消息内容（字符串 / 消息段 / 数组）
+ * @returns {{message: *, nickname: string, user_id: (number|string)}}
+ */
+export function makeForwardNode(e, message) {
+    return {
+        message,
+        nickname: e.sender.card || e.sender.nickname || e.user_id,
+        user_id: e.user_id,
+    };
+}
+
+/**
+ * 把评论返回数据规整为合并转发节点数组，兼容两种形态：
+ *  - 截图模式：元素是图片消息段（无 message 字段）→ 包成触发者节点
+ *  - 回退模式：元素本身已是转发节点（有 message 字段）→ 原样保留
+ * @param e
+ * @param commentData  douyinComment/biliComment 在 returnData=true 时的返回值
+ * @returns {Array} 可直接展开进合并转发数组的节点列表
+ */
+export function normalizeCommentNodes(e, commentData) {
+    if (!commentData || commentData.length === 0) return [];
+    // 图片消息段没有 message 字段，需包装成转发节点；已是转发节点（含 message）则原样保留
+    if (commentData[0] && !commentData[0].message) {
+        return commentData.map(img => makeForwardNode(e, img));
+    }
+    return commentData;
+}
+
+/**
  * 发送群组音乐卡片
  * @param e
  * @param platformType 音乐平台

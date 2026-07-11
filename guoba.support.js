@@ -749,6 +749,14 @@ export function supportGuoba() {
                     },
                 },
                 {
+                    field: "tools.kuaishouMergeVideoMsg",
+                    label: "快手合并转发视频解析消息",
+                    bottomHelpMessage:
+                        "开启后，将快手识别信息和视频直链打包成合并聊天记录发送，防止刷屏（默认开启）",
+                    component: "Switch",
+                    required: false,
+                },
+                {
                     field: "tools.weiboCookie",
                     label: "微博的Cookie",
                     bottomHelpMessage:

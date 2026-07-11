@@ -134,7 +134,7 @@ import { fetchVideoProfile, extractShareUrl } from "../utils/weixin-channel.js";
 import { summarizeLink as summarizeLinkByYuanbao, summarizeContent as summarizeContentByYuanbao } from "../utils/weixin-article-yuanbao.js";
 import { convertToSeconds, removeParams, ytbFormatTime } from "../utils/youtube.js";
 import { ytDlpGetDuration, ytDlpGetThumbnail, ytDlpGetThumbnailUrl, ytDlpGetTilt, ytDlpHelper } from "../utils/yt-dlp-util.js";
-import { textArrayToMakeForward, downloadImagesAndMakeForward, cleanupTempFiles, sendImagesInBatches, sendCustomMusicCard } from "../utils/yunzai-util.js";
+import { textArrayToMakeForward, makeForwardNode, normalizeCommentNodes, downloadImagesAndMakeForward, cleanupTempFiles, sendImagesInBatches, sendCustomMusicCard } from "../utils/yunzai-util.js";
 import { getApiParams, optimizeImageUrl } from "../utils/xiaoheihe.js";
 
 /**
@@ -426,6 +426,8 @@ export class tools extends plugin {
         this.douyinCommentChunkSize = this.toolsConfig.douyinCommentChunkSize ?? 10;
         // 加载抖音是否合并转发视频解析消息
         this.douyinMergeVideoMsg = this.toolsConfig.douyinMergeVideoMsg ?? true;
+        // 加载快手是否合并转发视频解析消息
+        this.kuaishouMergeVideoMsg = this.toolsConfig.kuaishouMergeVideoMsg ?? true;
         // 加载抖音是否开启背景音乐
         this.douyinMusic = this.toolsConfig.douyinMusic ?? true;
         // 加载抖音背景音乐发送方式
@@ -882,19 +884,12 @@ export class tools extends plugin {
             const forwardMsg = [];
 
             // 1. 添加视频信息（包含封面）
-            if (this.douyinDisplayCover && coverUrl) {
-                forwardMsg.push({
-                    message: [segment.image(coverUrl), dySendContent],
-                    nickname: e.sender.card || e.sender.nickname || e.user_id,
-                    user_id: e.user_id,
-                });
-            } else {
-                forwardMsg.push({
-                    message: dySendContent,
-                    nickname: e.sender.card || e.sender.nickname || e.user_id,
-                    user_id: e.user_id,
-                });
-            }
+            forwardMsg.push(makeForwardNode(
+                e,
+                this.douyinDisplayCover && coverUrl
+                    ? [segment.image(coverUrl), dySendContent]
+                    : dySendContent
+            ));
 
             // 2. 下载并上传视频，获取直链
             const videoPath = await this.downloadVideo(videoUrl, false, downloadHeaders, this.videoDownloadConcurrency, 'douyin.mp4');
@@ -902,32 +897,14 @@ export class tools extends plugin {
 
             // 2.1 添加视频直链到转发消息
             if (videoDirectUrl) {
-                forwardMsg.push({
-                    message: `${videoDirectUrl}`,
-                    nickname: e.sender.card || e.sender.nickname || e.user_id,
-                    user_id: e.user_id,
-                });
+                forwardMsg.push(makeForwardNode(e, `${videoDirectUrl}`));
             }
 
             // 3. 获取评论数据
             const commentData = await this.douyinComment(e, douId, commentHeaders, desc, coverUrl, author, true); // returnData = true
 
-            // 将评论数据添加到转发消息
-            if (commentData && commentData.length > 0) {
-                // 如果是图片数组（截图模式）：图片消息段没有 message 字段，需包装成转发节点
-                if (commentData[0] && !commentData[0].message) {
-                    commentData.forEach(img => {
-                        forwardMsg.push({
-                            message: img,
-                            nickname: e.sender.card || e.sender.nickname || e.user_id,
-                            user_id: e.user_id,
-                        });
-                    });
-                } else {
-                    // 如果是转发消息格式（回退模式）
-                    forwardMsg.push(...commentData);
-                }
-            }
+            // 将评论数据规整为转发节点后追加
+            forwardMsg.push(...normalizeCommentNodes(e, commentData));
 
             // 发送合并转发消息
             if (forwardMsg.length > 1) {
@@ -1772,19 +1749,11 @@ export class tools extends plugin {
                 const forwardMsg = [];
 
                 // 1. 添加视频信息
-                forwardMsg.push({
-                    message: biliInfo,
-                    nickname: e.sender.card || e.sender.nickname || e.user_id,
-                    user_id: e.user_id,
-                });
+                forwardMsg.push(makeForwardNode(e, biliInfo));
 
                 // 2. 添加视频直链（使用上传后的 MP4 直链）
                 if (videoDirectUrl) {
-                    forwardMsg.push({
-                        message: `${videoDirectUrl}`,
-                        nickname: e.sender.card || e.sender.nickname || e.user_id,
-                        user_id: e.user_id,
-                    });
+                    forwardMsg.push(makeForwardNode(e, `${videoDirectUrl}`));
                 }
 
                 // 3. 获取评论数据（如果开启了评论）
@@ -1795,22 +1764,8 @@ export class tools extends plugin {
                         ownerMid: owner.mid
                     }, true); // returnData = true
 
-                    // 将评论数据添加到转发消息
-                    if (commentData && commentData.length > 0) {
-                        // 如果是图片数组（截图模式）
-                        if (commentData[0] && !commentData[0].message) {
-                            commentData.forEach(img => {
-                                forwardMsg.push({
-                                    message: img,
-                                    nickname: e.sender.card || e.sender.nickname || e.user_id,
-                                    user_id: e.user_id,
-                                });
-                            });
-                        } else {
-                            // 如果是转发消息格式（回退模式）
-                            forwardMsg.push(...commentData);
-                        }
-                    }
+                    // 将评论数据规整为转发节点后追加
+                    forwardMsg.push(...normalizeCommentNodes(e, commentData));
                 }
 
                 // 发送合并转发消息（只要有内容就发送）
@@ -3616,7 +3571,12 @@ export class tools extends plugin {
             }
 
             // 通用处理逻辑（非皮皮虾）
-            e.reply(`${this.identifyPrefix}识别：${adapter.name}${adapter.desc ? `, ${adapter.desc}` : ''}`);
+            const identifyText = `${this.identifyPrefix}识别：${adapter.name}${adapter.desc ? `, ${adapter.desc}` : ''}`;
+            // 快手合并转发模式：把识别信息放进转发节点，避免与即时回复重复
+            const isKuaishouMerge = adapter.name === "快手" && this.kuaishouMergeVideoMsg && !!adapter.video;
+            if (!isKuaishouMerge) {
+                e.reply(identifyText);
+            }
             logger.debug(adapter);
             logger.debug(`[R插件][General Adapter Debug] adapter.images: ${JSON.stringify(adapter.images)}`);
             logger.debug(`[R插件][General Adapter Debug] adapter.video: ${adapter.video}`);
@@ -3624,10 +3584,26 @@ export class tools extends plugin {
                 logger.debug(`[R插件][General Adapter Debug] Entering video sending logic for ${adapter.name}. Video URL: ${adapter.video}`);
                 // 视频：https://www.kuaishou.com/short-video/3xhjgcmir24m4nm
                 const url = adapter.video;
-                this.downloadVideo(url, false, null, this.videoDownloadConcurrency, 'kuaishou.mp4').then(videoPath => {
-                    logger.debug(`[R插件][General Adapter Debug] Video downloaded to path: ${videoPath}`);
-                    this.sendVideoToUpload(e, videoPath);
-                });
+                if (isKuaishouMerge) {
+                    // 合并转发模式：识别信息 + 视频直链，作者显示为触发者
+                    const forwardMsg = [makeForwardNode(e, identifyText)];
+                    const videoPath = await this.downloadVideo(url, false, null, this.videoDownloadConcurrency, 'kuaishou.mp4');
+                    const videoDirectUrl = await this.sendVideoToUpload(e, videoPath, this.videoSizeLimit, true); // skipSend=true 返回直链
+                    if (videoDirectUrl) {
+                        forwardMsg.push(makeForwardNode(e, `${videoDirectUrl}`));
+                    }
+                    if (forwardMsg.length > 1) {
+                        await e.reply(Bot.makeForwardMsg(forwardMsg));
+                    } else {
+                        // 上传失败兜底：至少把识别信息发出来
+                        await e.reply(identifyText);
+                    }
+                } else {
+                    this.downloadVideo(url, false, null, this.videoDownloadConcurrency, 'kuaishou.mp4').then(videoPath => {
+                        logger.debug(`[R插件][General Adapter Debug] Video downloaded to path: ${videoPath}`);
+                        this.sendVideoToUpload(e, videoPath);
+                    });
+                }
             } else if (adapter.images && adapter.images.length > 0) {
                 logger.debug(`[R插件][General Adapter Debug] Entering image sending logic for ${adapter.name}`);
                 logger.info(`[R插件][图片下载] 开始并发下载 ${adapter.images.length} 张图片...`);
