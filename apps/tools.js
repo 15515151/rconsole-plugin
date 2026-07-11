@@ -914,8 +914,8 @@ export class tools extends plugin {
 
             // 将评论数据添加到转发消息
             if (commentData && commentData.length > 0) {
-                // 如果是图片数组（截图模式）
-                if (commentData[0] && typeof commentData[0] !== 'object') {
+                // 如果是图片数组（截图模式）：图片消息段没有 message 字段，需包装成转发节点
+                if (commentData[0] && !commentData[0].message) {
                     commentData.forEach(img => {
                         forwardMsg.push({
                             message: img,
