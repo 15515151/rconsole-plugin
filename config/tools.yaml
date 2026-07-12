@@ -7,6 +7,9 @@ videoSizeLimit: 70 # 视频大小限制（单位MB），超过大小则转换成
 proxyAddr: '127.0.0.1' # 魔法地址
 proxyPort: '7890' # 魔法端口
 identifyPrefix: '' # 识别前缀，比如你识别哔哩哔哩，那么就有：✅ 识别：哔哩哔哩
+riskCheckEnable: true # 是否开启解析前置风险检测，开启后会将标题/简介/标签/UP主发送至检测接口，命中拦截等级则不予解析
+riskCheckApi: 'http://192.168.31.126:8080/check' # 风险检测接口地址（noblack 敏感词检测服务 POST /check）
+riskCheckBlockLevels: 'bilibili,Medium,High' # 命中即拦截的风险等级，多个用英文逗号分隔（大小写不敏感）
 forceOverseasServer: false # 是否强制使用海外服务器，设置为true时，Twitter、TikTok等平台将强制使用代理
 videoCodec: auto # 视频编码选择（影响B站和YouTube）：auto=自动选择最佳编码, av1=AV1编码(最小体积,PC QQ可能无法播放), hevc=HEVC/H.265编码, avc=AVC/H.264编码(最佳兼容)
 

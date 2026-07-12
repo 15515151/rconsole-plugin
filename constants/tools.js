@@ -41,6 +41,14 @@ export const BILI_VIDEO_INFO = "http://api.bilibili.com/x/web-interface/view";
 export const BILI_VIEW_DETAIL = "https://api.bilibili.com/x/web-interface/wbi/view/detail";
 
 /**
+ * noblack 敏感词检测服务 · 解析前置风险检测接口
+ * 请求：POST {"text":"..."}；响应：data.matches[{word, levels[], remarks[], position}]
+ * @type {string}
+ */
+export const NOBLACK_CHECK_API = "http://192.168.31.126:8080/check";
+
+
+/**
  * 视频评论（经典分页接口）
  * https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/comment/list.md
  * @type {string}

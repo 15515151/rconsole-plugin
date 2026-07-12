@@ -100,6 +100,33 @@ export function supportGuoba() {
                     },
                 },
                 {
+                    field: "tools.riskCheckEnable",
+                    label: "解析前置风险检测",
+                    bottomHelpMessage: "开启后会将标题/简介/标签/UP主发送至检测接口，命中拦截等级则不予解析",
+                    component: "Switch",
+                    required: false,
+                },
+                {
+                    field: "tools.riskCheckApi",
+                    label: "风险检测接口地址",
+                    bottomHelpMessage: "noblack 敏感词检测服务的 POST /check 接口地址",
+                    component: "Input",
+                    required: false,
+                    componentProps: {
+                        placeholder: "请输入检测接口地址，例如 http://192.168.31.126:8080/check",
+                    },
+                },
+                {
+                    field: "tools.riskCheckBlockLevels",
+                    label: "拦截风险等级",
+                    bottomHelpMessage: "命中即拦截的风险等级，多个用英文逗号分隔（大小写不敏感），如：bilibili,Medium,High",
+                    component: "Input",
+                    required: false,
+                    componentProps: {
+                        placeholder: "bilibili,Medium,High",
+                    },
+                },
+                {
                     field: "tools.proxyAddr",
                     label: "魔法地址",
                     bottomHelpMessage: "tiktok/小蓝鸟等要使用魔法时需要填写",

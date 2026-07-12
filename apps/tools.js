@@ -117,6 +117,7 @@ import {
     mergeFileToMp4
 } from "../utils/bilibili.js";
 import { getWbi } from "../utils/biliWbi.js";
+import { checkParseRisk } from "../utils/risk-check.js";
 import { getBodianAudio, getBodianMusicInfo, getBodianMv } from "../utils/bodian.js";
 import {
     checkToolInCurEnv,
@@ -356,6 +357,10 @@ export class tools extends plugin {
         this.myProxy = `http://${this.proxyAddr}:${this.proxyPort}`;
         // 加载识别前缀
         this.identifyPrefix = this.toolsConfig.identifyPrefix;
+        // 解析前置风险检测配置
+        this.riskCheckEnable = this.toolsConfig.riskCheckEnable;
+        this.riskCheckApi = this.toolsConfig.riskCheckApi;
+        this.riskCheckBlockLevels = this.toolsConfig.riskCheckBlockLevels;
         // 加载直播录制时长
         this.streamDuration = this.toolsConfig.streamDuration;
         // 加载直播是否开启兼容模式
@@ -710,6 +715,19 @@ export class tools extends plugin {
                 }
                 e.reply("R插件无法识别到当前抖音内容，请换一个试试！");
                 return;
+            }
+            // 解析前置风险检测：命中 bilibili/Medium/High 等级则终止解析（remarks 仅记录日志，绝不回传用户）
+            const dyRiskResult = await checkParseRisk({
+                desc: item.desc,
+                author: item.author?.nickname,
+            }, {
+                enable: this.riskCheckEnable,
+                api: this.riskCheckApi,
+                blockLevels: this.riskCheckBlockLevels,
+            });
+            if (dyRiskResult.blocked) {
+                e.reply("检测到当前内容存在风险，不予解析");
+                return true;
             }
             const urlTypeCode = item.aweme_type;
             const urlType = douyinTypeMap[urlTypeCode];
@@ -1703,6 +1721,21 @@ export class tools extends plugin {
         // 视频信息获取例子：http://api.bilibili.com/x/web-interface/view?bvid=BV1hY411m7cB
         // 请求视频信息
         const videoInfo = await getVideoInfo(url, this.biliSessData);
+        // 解析前置风险检测：命中 bilibili/Medium/High 等级则终止解析（remarks 仅记录日志，绝不回传用户）
+        const riskResult = await checkParseRisk({
+            title: videoInfo.title,
+            desc: videoInfo.desc,
+            tags: videoInfo.tags,
+            author: videoInfo.owner?.name,
+        }, {
+            enable: this.riskCheckEnable,
+            api: this.riskCheckApi,
+            blockLevels: this.riskCheckBlockLevels,
+        });
+        if (riskResult.blocked) {
+            e.reply("检测到当前内容存在风险，不予解析");
+            return true;
+        }
         // 打印获取到的视频信息，用于调试时长问题
         logger.debug(`[R插件][Bili Debug] Video Info for ${url}: duration=${videoInfo.duration}, pages=${JSON.stringify(videoInfo.pages)}`);
         const { duration, bvid, cid, owner, pages } = videoInfo;
