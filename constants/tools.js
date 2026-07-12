@@ -34,6 +34,13 @@ export const BILI_BVID_TO_CID = "https://api.bilibili.com/x/player/pagelist?bvid
 export const BILI_VIDEO_INFO = "http://api.bilibili.com/x/web-interface/view";
 
 /**
+ * 视频详细信息API（WBI签名，返回体嵌套在 data.View，额外包含 data.participle 标签词条等字段）
+ * https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/video/info.md
+ * @type {string}
+ */
+export const BILI_VIEW_DETAIL = "https://api.bilibili.com/x/web-interface/wbi/view/detail";
+
+/**
  * 视频评论（经典分页接口）
  * https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/comment/list.md
  * @type {string}

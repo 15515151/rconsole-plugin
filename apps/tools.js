@@ -1702,7 +1702,7 @@ export class tools extends plugin {
         }
         // 视频信息获取例子：http://api.bilibili.com/x/web-interface/view?bvid=BV1hY411m7cB
         // 请求视频信息
-        const videoInfo = await getVideoInfo(url);
+        const videoInfo = await getVideoInfo(url, this.biliSessData);
         // 打印获取到的视频信息，用于调试时长问题
         logger.debug(`[R插件][Bili Debug] Video Info for ${url}: duration=${videoInfo.duration}, pages=${JSON.stringify(videoInfo.pages)}`);
         const { duration, bvid, cid, owner, pages } = videoInfo;
@@ -1857,7 +1857,7 @@ export class tools extends plugin {
      * @returns {Promise<(string|string|*)[]>}
      */
     async constructBiliInfo(videoInfo, displayTitle, partTitle, pParam) { // 增加 partTitle 和 pParam 参数
-        const { desc, bvid, cid, pic } = videoInfo;
+        const { desc, bvid, cid, pic, tags } = videoInfo;
         // 视频信息
         const { view, danmaku, reply, favorite, coin, share, like } = videoInfo.stat;
         // 格式化数据
@@ -1881,6 +1881,10 @@ export class tools extends plugin {
             // 过滤简介中的一些链接
             const filteredDesc = await filterBiliDescLink(desc);
             combineContent += `\n📝 简介：${truncateString(filteredDesc, this.toolsConfig.biliIntroLenLimit || BILI_DEFAULT_INTRO_LEN_LIMIT)}`;
+        }
+        // 标签词条（participle），始终显示
+        if (Array.isArray(tags) && tags.length > 0) {
+            combineContent += `\n🏷️ 标签：${tags.join(" / ")}`;
         }
         // 是否显示在线人数
         if (this.biliDisplayOnline) {

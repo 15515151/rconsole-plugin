@@ -14,9 +14,11 @@ import {
     BILI_PLAY_STREAM,
     BILI_SCAN_CODE_DETECT,
     BILI_SCAN_CODE_GENERATE,
-    BILI_VIDEO_INFO
+    BILI_VIDEO_INFO,
+    BILI_VIEW_DETAIL
 } from "../constants/tools.js";
 import { mkdirIfNotExists } from "./file.js";
+import { getWbi } from "./biliWbi.js";
 
 export const BILI_HEADER = {
     'User-Agent':
@@ -1224,21 +1226,51 @@ export async function getPageCid(bvid, pNumber) {
 
 /**
  * 获取视频信息
+ * 优先使用 WBI 签名的 view/detail 接口（返回体嵌套在 data.View，额外带 data.participle 标签词条）；
+ * 请求失败或返回非 0 时回退到旧的 web-interface/view 接口（此时 tags 为空数组）。
  * @param url
- * @returns {Promise<{duration: *, owner: *, bvid: *, stat: *, pages: *, dynamic: *, pic: *, title: *, aid: *, desc: *, cid: *}>}
+ * @param SESSDATA 登录凭证（可为空，为空时匿名获取 wbi key）
+ * @returns {Promise<{duration: *, owner: *, bvid: *, stat: *, pages: *, dynamic: *, pic: *, title: *, aid: *, desc: *, cid: *, tags: string[]}>}
  */
-export async function getVideoInfo(url) {
-    // const baseVideoInfo = "http://api.bilibili.com/x/web-interface/view";
+export async function getVideoInfo(url, SESSDATA = "") {
     const videoId = /video\/[^\?\/ ]+/.exec(url)[0].split("/")[1];
-    // 如果匹配到的是AV号特殊处理
-    let finalUrl = `${BILI_VIDEO_INFO}?`;
-    if (videoId.toLowerCase().startsWith('av')) {
-        finalUrl += `aid=${videoId.slice(2)}`;
-    } else {
-        finalUrl += `bvid=${videoId}`;
+    // 如果匹配到的是AV号特殊处理，否则按BV号处理
+    const isAv = videoId.toLowerCase().startsWith('av');
+    const idParams = isAv ? { aid: videoId.slice(2) } : { bvid: videoId };
+
+    // 优先走 WBI 签名的 view/detail 接口
+    try {
+        const signedQuery = await getWbi({ ...idParams }, SESSDATA);
+        const detailUrl = `${BILI_VIEW_DETAIL}?${signedQuery}`;
+        logger.debug(detailUrl);
+        const resp = await fetch(detailUrl, { headers: BILI_HEADER });
+        const respJson = await resp.json();
+        if (respJson.code === 0 && respJson.data?.View) {
+            const view = respJson.data.View;
+            return {
+                title: view.title,
+                pic: view.pic,
+                desc: view.desc,
+                duration: view.duration,
+                dynamic: view.dynamic,
+                stat: view.stat,
+                bvid: view.bvid,
+                aid: view.aid,
+                cid: view.pages?.[0].cid,
+                owner: view.owner,
+                pages: view?.pages,
+                tags: respJson.data.participle || [],
+            };
+        }
+        logger.warn(`[R插件][Bili视频信息] view/detail 接口返回异常(code=${respJson.code})，回退旧接口`);
+    } catch (err) {
+        logger.warn(`[R插件][Bili视频信息] view/detail 接口请求失败，回退旧接口: ${err.message}`);
     }
+
+    // 兜底：旧的 web-interface/view 接口（无标签）
+    let finalUrl = `${BILI_VIDEO_INFO}?`;
+    finalUrl += isAv ? `aid=${videoId.slice(2)}` : `bvid=${videoId}`;
     logger.debug(finalUrl);
-    // 获取视频信息，然后发送
     return fetch(finalUrl)
         .then(async resp => {
             const respJson = await resp.json();
@@ -1255,6 +1287,7 @@ export async function getVideoInfo(url) {
                 cid: respData.pages?.[0].cid,
                 owner: respData.owner,
                 pages: respData?.pages,
+                tags: [],
             };
         });
 }
