@@ -1857,11 +1857,15 @@ export class tools extends plugin {
      * @returns {Promise<(string|string|*)[]>}
      */
     async constructBiliInfo(videoInfo, displayTitle, partTitle, pParam) { // 增加 partTitle 和 pParam 参数
-        const { desc, bvid, cid, pic, tags } = videoInfo;
+        const { desc, bvid, cid, pic, tags, owner } = videoInfo;
         // 视频信息
         const { view, danmaku, reply, favorite, coin, share, like } = videoInfo.stat;
         // 格式化数据
         let combineContent = "";
+        // UP主
+        if (owner?.name) {
+            combineContent += `\nUP主：${owner.name}`;
+        }
         // 是否显示信息
         if (this.biliDisplayInfo) {
             // 构造一个可扩展的Map
